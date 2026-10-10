@@ -1,6 +1,13 @@
 {
   "name": "live-transcribe",
   "private": true,
-  "scripts": { "test": "node tests/app.test.js" },
-  "devDependencies": { "playwright-core": "1.55.0" }
+  "scripts": {
+    "vendor": "esbuild node_modules/@anthropic-ai/sdk/index.mjs --bundle --format=esm --minify --platform=browser --outfile=vendor/anthropic-sdk.js",
+    "test": "node tests/app.test.js && node tests/summary.test.js"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "0.128.0",
+    "esbuild": "0.25.10",
+    "playwright-core": "1.55.0"
+  }
 }

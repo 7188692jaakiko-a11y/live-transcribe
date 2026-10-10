@@ -19,15 +19,33 @@
     <button id="btn-sessions" class="icon-btn" aria-label="記録の一覧">☰</button>
     <input id="title" class="title" aria-label="記録の名前" placeholder="名前のない記録">
     <span id="clock" class="clock" aria-live="off">00:00</span>
+    <button id="btn-settings" class="icon-btn" aria-label="設定">⚙</button>
   </header>
+
+  <nav class="tabs" aria-label="表示の切り替え">
+    <button id="tab-text" class="tab active">文字起こし</button>
+    <button id="tab-summary" class="tab">要点 <span id="summary-badge" class="badge" hidden></span></button>
+  </nav>
 
   <div id="notice" class="notice" hidden></div>
 
-  <main id="transcript" class="transcript" aria-live="polite">
-    <p class="empty" id="empty">下の「● 開始」を押して話すと、ここに文字が出ます。<br>
-      行をタップすると、あとから直せます。</p>
-  </main>
-  <div id="interim" class="interim" aria-hidden="true"></div>
+  <div class="panes" id="panes">
+    <section class="pane pane-text">
+      <main id="transcript" class="transcript" aria-live="polite">
+        <p class="empty" id="empty">下の「● 開始」を押して話すと、ここに文字が出ます。<br>
+          行をタップすると、あとから直せます。</p>
+      </main>
+      <div id="interim" class="interim" aria-hidden="true"></div>
+    </section>
+    <section class="pane pane-summary" aria-label="要点リスト">
+      <div class="summary-head">
+        <h2>要点リスト</h2>
+        <span id="summary-status" class="summary-status"></span>
+        <button id="btn-summarize" class="btn small">更新</button>
+      </div>
+      <div id="summary" class="summary"></div>
+    </section>
+  </div>
 
   <footer class="controls">
     <select id="lang" aria-label="話す言語">
@@ -58,6 +76,7 @@
   <dialog id="dlg-export" class="sheet">
     <h2>書き出し</h2>
     <label class="check"><input type="checkbox" id="opt-time" checked> 経過時間を付ける</label>
+    <label class="check"><input type="checkbox" id="opt-summary" checked> 要点リストも入れる</label>
     <div class="sheet-actions column">
       <button id="btn-copy" class="btn">文字をコピー</button>
       <button id="btn-share" class="btn">共有(メール・メモ・Dropbox など)</button>
@@ -66,6 +85,29 @@
     </div>
   </dialog>
 
-  <script src="app.js"></script>
+  <dialog id="dlg-settings" class="sheet">
+    <h2>要点リストの設定</h2>
+    <p class="hint">要点リストは、文字起こしを Claude(Anthropic の AI)に送って作ります。
+      使うには Anthropic の API キーが必要です(<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">ここで発行</a>)。
+      使った分だけ料金がかかるので、Anthropic の画面で月の上限を決めておくと安心です。</p>
+    <label class="field">API キー
+      <input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-...">
+    </label>
+    <p class="hint">キーはこの端末の中にだけ保存されます。人に貸す端末では入れないでください。</p>
+    <label class="check"><input type="checkbox" id="opt-auto" checked> 話している間、要点を自動で更新する</label>
+    <label class="field">更新の間隔
+      <select id="opt-interval">
+        <option value="30">30秒ごと</option>
+        <option value="60" selected>1分ごと</option>
+        <option value="120">2分ごと</option>
+        <option value="300">5分ごと</option>
+      </select>
+    </label>
+    <div class="sheet-actions">
+      <button class="btn" data-close>閉じる</button>
+    </div>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
 </body>
 </html>

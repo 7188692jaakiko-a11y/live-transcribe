@@ -1,7 +1,7 @@
 // 画面一式を端末に置いておき、電波の弱い場所でもすぐ開けるようにする
 // (文字への変換そのものは、多くの端末で通信が必要)
-const CACHE = 'lt-v1';
-const FILES = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest',
+const CACHE = 'lt-v2';
+const FILES = ['./', 'index.html', 'style.css', 'app.js', 'summary.js', 'vendor/anthropic-sdk.js', 'manifest.webmanifest',
                'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {

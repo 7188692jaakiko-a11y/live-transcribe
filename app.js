@@ -1,5 +1,5 @@
 // ライブ文字起こし: 端末(ブラウザ)の音声認識で話した言葉をその場で文字にする
-'use strict';
+import { summarize, SECTIONS } from './summary.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE_KEY = 'lt.sessions.v1';
@@ -56,6 +56,7 @@ function render() {
   current.lines.forEach((line, i) => box.appendChild(lineEl(line, i)));
   $('empty').hidden = current.lines.length > 0;
   $('clock').textContent = fmt(elapsed());
+  renderSummary();
 }
 
 function lineEl(line, i) {
@@ -235,6 +236,8 @@ function stopRecording() {
   saveSessions();
   setRecUI(false);
   releaseWakeLock();
+  // 止めたら最後に一度まとめ直す
+  if (settings.auto && settings.apiKey && newLinesSinceSummary() > 0) runSummary();
 }
 
 function setRecUI(on) {
@@ -270,7 +273,16 @@ function exportText(withTime) {
   const date = new Date(s.createdAt).toLocaleString('ja-JP');
   const head = `${s.title || '名前のない記録'}\n${date}(${fmt(s.durationMs + (runStart ? Date.now() - runStart : 0))})\n\n`;
   const body = s.lines.map((l) => (withTime ? `[${fmt(l.t)}] ` : '') + l.text).join('\n');
-  return head + body + '\n';
+  let summary = '';
+  if (s.summary && $('opt-summary').checked) {
+    for (const [key, label] of SECTIONS) {
+      const items = s.summary[key] || [];
+      if (!items.length) continue;
+      summary += `■ ${label}\n` + items.map((it) => `・${it.text}` + (withTime && it.at ? ` [${it.at}]` : '')).join('\n') + '\n\n';
+    }
+    if (summary) summary += '■ 文字起こし\n';
+  }
+  return head + summary + body + '\n';
 }
 function exportName() {
   const d = new Date(current.createdAt);
@@ -325,14 +337,14 @@ function renderSessionList() {
     const small = document.createElement('small');
     small.textContent = `${new Date(s.createdAt).toLocaleString('ja-JP')}・${fmt(s.durationMs)}・${s.lines.length} 行`;
     open.appendChild(small);
-    open.onclick = () => { current = s; saveSessions(); render(); $('dlg-sessions').close(); };
+    open.onclick = () => { cancelSummary(); current = s; saveSessions(); render(); $('dlg-sessions').close(); };
     const del = document.createElement('button');
     del.className = 'del';
     del.textContent = '削除';
     del.onclick = () => {
       if (!confirm(`「${s.title || '名前のない記録'}」を削除します。元に戻せません。`)) return;
       sessions.splice(sessions.indexOf(s), 1);
-      if (s === current) current = sessions[0] || newSession();
+      if (s === current) { cancelSummary(); current = sessions[0] || newSession(); }
       saveSessions();
       render();
       renderSessionList();
@@ -356,6 +368,7 @@ $('btn-export').onclick = () => $('dlg-export').showModal();
 $('btn-sessions').onclick = () => { renderSessionList(); $('dlg-sessions').showModal(); };
 $('btn-new').onclick = () => {
   if (!current.lines.length && !current.title) { $('dlg-sessions').close(); return; }
+  cancelSummary();
   current = newSession();
   saveSessions();
   render();
@@ -368,6 +381,180 @@ $('lang').addEventListener('change', () => { current.lang = $('lang').value; sav
 
 setInterval(() => { if (runStart) $('clock').textContent = fmt(elapsed()); }, 500);
 window.addEventListener('pagehide', () => { if (wantRec) stopRecording(); });
+
+// ---- 要点リスト ----
+
+const settings = {
+  apiKey: safeGet('lt.apiKey') || '',
+  auto: safeGet('lt.auto') !== '0',
+  interval: Number(safeGet('lt.interval')) || 60,
+};
+function saveSetting(key, value) { try { localStorage.setItem(key, value); } catch {} }
+
+let summaryJob = null;      // 実行中の要点づくり { controller, session }
+let lastSummaryTry = 0;     // 最後に要点づくりを始めた時刻
+let summaryBackoff = 0;     // 失敗が続いたときに次の自動更新を遅らせる秒数
+
+function newLinesSinceSummary() {
+  return current.lines.length - (current.summary?.linesCovered || 0);
+}
+
+function setSummaryStatus(text, isError = false) {
+  const el = $('summary-status');
+  el.textContent = text;
+  el.classList.toggle('err', isError);
+}
+
+function summaryStatusIdle() {
+  const s = current.summary;
+  if (!s?.updatedAt) return setSummaryStatus('');
+  const at = new Date(s.updatedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+  const behind = newLinesSinceSummary();
+  setSummaryStatus(`${at} に更新` + (behind > 0 ? `(そのあと ${behind} 行)` : ''));
+}
+
+function renderSummary(prev = null) {
+  const box = $('summary');
+  box.replaceChildren();
+  const s = current.summary;
+  if (!settings.apiKey) {
+    box.appendChild(hint('要点リストを作るには、右上の ⚙ で Claude の API キーを入れてください。'));
+  } else if (!s?.updatedAt) {
+    box.appendChild(hint(current.lines.length
+      ? '「更新」を押すと、ここまでの文字起こしから要点リストを作ります。'
+      : settings.auto ? '話し始めると、ここに要点が自動でまとまっていきます。' : '話したあと「更新」を押すと、ここに要点がまとまります。'));
+  }
+  if (s?.updatedAt) {
+    const before = new Set(prev ? SECTIONS.flatMap(([k]) => (prev[k] || []).map((it) => it.text)) : []);
+    let any = false;
+    for (const [key, label] of SECTIONS) {
+      const items = s[key] || [];
+      if (!items.length) continue;
+      any = true;
+      const h = document.createElement('h3');
+      h.textContent = label;
+      const ul = document.createElement('ul');
+      for (const it of items) {
+        const li = document.createElement('li');
+        li.textContent = it.text;
+        if (prev && !before.has(it.text)) li.className = 'new';
+        if (it.at) {
+          const b = document.createElement('button');
+          b.className = 'at';
+          b.textContent = it.at;
+          b.title = 'この発言へ移動';
+          b.onclick = () => jumpTo(it.at);
+          li.appendChild(b);
+        }
+        ul.appendChild(li);
+      }
+      box.append(h, ul);
+    }
+    if (!any) box.appendChild(hint('まだ要点になる話は出ていません。'));
+  }
+  $('btn-summarize').disabled = !settings.apiKey || !!summaryJob;
+  if (!summaryJob) summaryStatusIdle();
+}
+
+function hint(text) {
+  const p = document.createElement('p');
+  p.className = 'hint';
+  p.textContent = text;
+  return p;
+}
+
+// 要点の経過時間から、その発言の行へ移動する
+function jumpTo(at) {
+  const [a, b, c] = at.split(':').map(Number);
+  const ms = (c === undefined ? a * 60 + b : a * 3600 + b * 60 + c) * 1000;
+  if (Number.isNaN(ms)) return;
+  let idx = current.lines.findIndex((l) => l.t >= ms);
+  if (idx < 0) idx = current.lines.length - 1;
+  const el = $('transcript').querySelectorAll('.line')[idx];
+  if (!el) return;
+  showTab('text');
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  el.classList.remove('flash');
+  void el.offsetWidth;
+  el.classList.add('flash');
+}
+
+async function runSummary() {
+  if (summaryJob || !settings.apiKey || !current.lines.length) return;
+  const session = current;
+  const controller = new AbortController();
+  summaryJob = { controller, session };
+  lastSummaryTry = Date.now();
+  $('btn-summarize').disabled = true;
+  setSummaryStatus('要点をまとめています…');
+  try {
+    const prev = session.summary;
+    const result = await summarize(session, settings.apiKey, fmt, controller.signal);
+    session.summary = result;
+    summaryBackoff = 0;
+    summaryJob = null;
+    saveSessions();
+    if (session === current) {
+      renderSummary(prev);
+      if (!document.body.classList.contains('show-summary') && window.matchMedia('(max-width: 899px)').matches) {
+        $('summary-badge').hidden = false;
+        $('summary-badge').textContent = '新';
+      }
+    }
+  } catch (err) {
+    summaryBackoff = Math.min((summaryBackoff || 30) * 2, 600);
+    if (session === current && !controller.signal.aborted) setSummaryStatus(err.message, true);
+  } finally {
+    summaryJob = null;
+    $('btn-summarize').disabled = !settings.apiKey;
+  }
+}
+
+function cancelSummary() {
+  summaryJob?.controller.abort();
+  summaryJob = null;
+}
+
+// 話している間は、間隔ごとに新しい行があれば要点を更新する
+setInterval(() => {
+  if (!summaryJob) summaryStatusIdle();
+  if (!wantRec || !settings.auto || !settings.apiKey || summaryJob) return;
+  const wait = Math.max(settings.interval, summaryBackoff) * 1000;
+  if (Date.now() - lastSummaryTry < wait) return;
+  if (newLinesSinceSummary() >= 2) runSummary();
+}, 5000);
+
+function showTab(which) {
+  const summary = which === 'summary';
+  document.body.classList.toggle('show-summary', summary);
+  $('tab-summary').classList.toggle('active', summary);
+  $('tab-text').classList.toggle('active', !summary);
+  if (summary) $('summary-badge').hidden = true;
+}
+$('tab-text').onclick = () => showTab('text');
+$('tab-summary').onclick = () => showTab('summary');
+$('btn-summarize').onclick = () => runSummary();
+
+$('btn-settings').onclick = () => {
+  $('api-key').value = settings.apiKey;
+  $('opt-auto').checked = settings.auto;
+  $('opt-interval').value = String(settings.interval);
+  $('dlg-settings').showModal();
+};
+$('api-key').addEventListener('change', () => {
+  settings.apiKey = $('api-key').value.trim();
+  saveSetting('lt.apiKey', settings.apiKey);
+  renderSummary();
+});
+$('opt-auto').addEventListener('change', () => {
+  settings.auto = $('opt-auto').checked;
+  saveSetting('lt.auto', settings.auto ? '1' : '0');
+  renderSummary();
+});
+$('opt-interval').addEventListener('change', () => {
+  settings.interval = Number($('opt-interval').value);
+  saveSetting('lt.interval', String(settings.interval));
+});
 
 // ---- 起動 ----
 

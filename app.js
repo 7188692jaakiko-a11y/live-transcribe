@@ -1,5 +1,5 @@
 // ライブ文字起こし: 端末(ブラウザ)の音声認識で話した言葉をその場で文字にする
-import { summarize, SECTIONS } from './summary.js';
+import { extractPoints, claudePrompt, SECTIONS } from './points.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE_KEY = 'lt.sessions.v1';
@@ -103,6 +103,7 @@ function addLine(text, opts = {}) {
   $('transcript').appendChild(lineEl(line, current.lines.length - 1));
   saveSessions();
   scrollToEnd();
+  renderSummary(true);
   return line;
 }
 
@@ -236,8 +237,6 @@ function stopRecording() {
   saveSessions();
   setRecUI(false);
   releaseWakeLock();
-  // 止めたら最後に一度まとめ直す
-  if (settings.auto && settings.apiKey && newLinesSinceSummary() > 0) runSummary();
 }
 
 function setRecUI(on) {
@@ -274,9 +273,10 @@ function exportText(withTime) {
   const head = `${s.title || '名前のない記録'}\n${date}(${fmt(s.durationMs + (runStart ? Date.now() - runStart : 0))})\n\n`;
   const body = s.lines.map((l) => (withTime ? `[${fmt(l.t)}] ` : '') + l.text).join('\n');
   let summary = '';
-  if (s.summary && $('opt-summary').checked) {
+  if ($('opt-summary').checked) {
+    const points = extractPoints(s.lines, fmt);
     for (const [key, label] of SECTIONS) {
-      const items = s.summary[key] || [];
+      const items = points[key];
       if (!items.length) continue;
       summary += `■ ${label}\n` + items.map((it) => `・${it.text}` + (withTime && it.at ? ` [${it.at}]` : '')).join('\n') + '\n\n';
     }
@@ -337,14 +337,14 @@ function renderSessionList() {
     const small = document.createElement('small');
     small.textContent = `${new Date(s.createdAt).toLocaleString('ja-JP')}・${fmt(s.durationMs)}・${s.lines.length} 行`;
     open.appendChild(small);
-    open.onclick = () => { cancelSummary(); current = s; saveSessions(); render(); $('dlg-sessions').close(); };
+    open.onclick = () => { current = s; saveSessions(); render(); $('dlg-sessions').close(); };
     const del = document.createElement('button');
     del.className = 'del';
     del.textContent = '削除';
     del.onclick = () => {
       if (!confirm(`「${s.title || '名前のない記録'}」を削除します。元に戻せません。`)) return;
       sessions.splice(sessions.indexOf(s), 1);
-      if (s === current) { cancelSummary(); current = sessions[0] || newSession(); }
+      if (s === current) current = sessions[0] || newSession();
       saveSessions();
       render();
       renderSessionList();
@@ -368,7 +368,6 @@ $('btn-export').onclick = () => $('dlg-export').showModal();
 $('btn-sessions').onclick = () => { renderSessionList(); $('dlg-sessions').showModal(); };
 $('btn-new').onclick = () => {
   if (!current.lines.length && !current.title) { $('dlg-sessions').close(); return; }
-  cancelSummary();
   current = newSession();
   saveSessions();
   render();
@@ -384,76 +383,48 @@ window.addEventListener('pagehide', () => { if (wantRec) stopRecording(); });
 
 // ---- 要点リスト ----
 
-const settings = {
-  apiKey: safeGet('lt.apiKey') || '',
-  auto: safeGet('lt.auto') !== '0',
-  interval: Number(safeGet('lt.interval')) || 60,
-};
-function saveSetting(key, value) { try { localStorage.setItem(key, value); } catch {} }
+let shownPoints = new Set();   // いま画面に出ている項目(新しく増えたものを目立たせる)
 
-let summaryJob = null;      // 実行中の要点づくり { controller, session }
-let lastSummaryTry = 0;     // 最後に要点づくりを始めた時刻
-let summaryBackoff = 0;     // 失敗が続いたときに次の自動更新を遅らせる秒数
-
-function newLinesSinceSummary() {
-  return current.lines.length - (current.summary?.linesCovered || 0);
-}
-
-function setSummaryStatus(text, isError = false) {
-  const el = $('summary-status');
-  el.textContent = text;
-  el.classList.toggle('err', isError);
-}
-
-function summaryStatusIdle() {
-  const s = current.summary;
-  if (!s?.updatedAt) return setSummaryStatus('');
-  const at = new Date(s.updatedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
-  const behind = newLinesSinceSummary();
-  setSummaryStatus(`${at} に更新` + (behind > 0 ? `(そのあと ${behind} 行)` : ''));
-}
-
-function renderSummary(prev = null) {
+// live: 話している最中の更新。新しく増えた項目を光らせ、スマホ幅なら要点タブに印を出す
+function renderSummary(live = false) {
   const box = $('summary');
   box.replaceChildren();
-  const s = current.summary;
-  if (!settings.apiKey) {
-    box.appendChild(hint('要点リストを作るには、右上の ⚙ で Claude の API キーを入れてください。'));
-  } else if (!s?.updatedAt) {
-    box.appendChild(hint(current.lines.length
-      ? '「更新」を押すと、ここまでの文字起こしから要点リストを作ります。'
-      : settings.auto ? '話し始めると、ここに要点が自動でまとまっていきます。' : '話したあと「更新」を押すと、ここに要点がまとまります。'));
-  }
-  if (s?.updatedAt) {
-    const before = new Set(prev ? SECTIONS.flatMap(([k]) => (prev[k] || []).map((it) => it.text)) : []);
-    let any = false;
-    for (const [key, label] of SECTIONS) {
-      const items = s[key] || [];
-      if (!items.length) continue;
-      any = true;
-      const h = document.createElement('h3');
-      h.textContent = label;
-      const ul = document.createElement('ul');
-      for (const it of items) {
-        const li = document.createElement('li');
-        li.textContent = it.text;
-        if (prev && !before.has(it.text)) li.className = 'new';
-        if (it.at) {
-          const b = document.createElement('button');
-          b.className = 'at';
-          b.textContent = it.at;
-          b.title = 'この発言へ移動';
-          b.onclick = () => jumpTo(it.at);
-          li.appendChild(b);
-        }
-        ul.appendChild(li);
-      }
-      box.append(h, ul);
+  const points = extractPoints(current.lines, fmt);
+  const now = new Set();
+  let added = 0;
+  for (const [key, label] of SECTIONS) {
+    const items = points[key];
+    if (!items.length) continue;
+    const h = document.createElement('h3');
+    h.textContent = label;
+    const ul = document.createElement('ul');
+    for (const it of items) {
+      const id = key + it.text;
+      now.add(id);
+      const li = document.createElement('li');
+      li.textContent = it.text;
+      if (live && !shownPoints.has(id)) { li.className = 'new'; added++; }
+      const b = document.createElement('button');
+      b.className = 'at';
+      b.textContent = it.at;
+      b.title = 'この発言へ移動';
+      b.onclick = () => jumpTo(it.at);
+      li.appendChild(b);
+      ul.appendChild(li);
     }
-    if (!any) box.appendChild(hint('まだ要点になる話は出ていません。'));
+    box.append(h, ul);
   }
-  $('btn-summarize').disabled = !settings.apiKey || !!summaryJob;
-  if (!summaryJob) summaryStatusIdle();
+  if (!now.size) {
+    box.appendChild(hint(current.lines.length
+      ? 'まだ拾える発言はありません。「〜しましょう」「〜までに」「〜ですか」などの言い回しや、★ 印を付けたところがここに並びます。'
+      : '話し始めると、決まったこと・やること・質問などをここに拾っていきます。大事なところでは「★ 印」を押してください。'));
+  }
+  shownPoints = now;
+  $('btn-claude').disabled = !current.lines.length;
+  if (added && !document.body.classList.contains('show-summary') && window.matchMedia('(max-width: 899px)').matches) {
+    $('summary-badge').hidden = false;
+    $('summary-badge').textContent = '新';
+  }
 }
 
 function hint(text) {
@@ -479,51 +450,6 @@ function jumpTo(at) {
   el.classList.add('flash');
 }
 
-async function runSummary() {
-  if (summaryJob || !settings.apiKey || !current.lines.length) return;
-  const session = current;
-  const controller = new AbortController();
-  summaryJob = { controller, session };
-  lastSummaryTry = Date.now();
-  $('btn-summarize').disabled = true;
-  setSummaryStatus('要点をまとめています…');
-  try {
-    const prev = session.summary;
-    const result = await summarize(session, settings.apiKey, fmt, controller.signal);
-    session.summary = result;
-    summaryBackoff = 0;
-    summaryJob = null;
-    saveSessions();
-    if (session === current) {
-      renderSummary(prev);
-      if (!document.body.classList.contains('show-summary') && window.matchMedia('(max-width: 899px)').matches) {
-        $('summary-badge').hidden = false;
-        $('summary-badge').textContent = '新';
-      }
-    }
-  } catch (err) {
-    summaryBackoff = Math.min((summaryBackoff || 30) * 2, 600);
-    if (session === current && !controller.signal.aborted) setSummaryStatus(err.message, true);
-  } finally {
-    summaryJob = null;
-    $('btn-summarize').disabled = !settings.apiKey;
-  }
-}
-
-function cancelSummary() {
-  summaryJob?.controller.abort();
-  summaryJob = null;
-}
-
-// 話している間は、間隔ごとに新しい行があれば要点を更新する
-setInterval(() => {
-  if (!summaryJob) summaryStatusIdle();
-  if (!wantRec || !settings.auto || !settings.apiKey || summaryJob) return;
-  const wait = Math.max(settings.interval, summaryBackoff) * 1000;
-  if (Date.now() - lastSummaryTry < wait) return;
-  if (newLinesSinceSummary() >= 2) runSummary();
-}, 5000);
-
 function showTab(which) {
   const summary = which === 'summary';
   document.body.classList.toggle('show-summary', summary);
@@ -533,28 +459,31 @@ function showTab(which) {
 }
 $('tab-text').onclick = () => showTab('text');
 $('tab-summary').onclick = () => showTab('summary');
-$('btn-summarize').onclick = () => runSummary();
 
-$('btn-settings').onclick = () => {
-  $('api-key').value = settings.apiKey;
-  $('opt-auto').checked = settings.auto;
-  $('opt-interval').value = String(settings.interval);
-  $('dlg-settings').showModal();
+// Claude アプリに渡して詳しくまとめてもらう(Claude のプランの範囲で、追加料金なし)
+$('btn-claude').onclick = () => $('dlg-claude').showModal();
+$('btn-claude-share').onclick = async () => {
+  const text = claudePrompt(current, fmt);
+  try {
+    if (!navigator.share) throw new Error('共有に対応していません');
+    await navigator.share({ text });
+    $('dlg-claude').close();
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    showNotice('共有できなかったので「コピーして claude.ai を開く」をお使いください。');
+  }
 };
-$('api-key').addEventListener('change', () => {
-  settings.apiKey = $('api-key').value.trim();
-  saveSetting('lt.apiKey', settings.apiKey);
-  renderSummary();
-});
-$('opt-auto').addEventListener('change', () => {
-  settings.auto = $('opt-auto').checked;
-  saveSetting('lt.auto', settings.auto ? '1' : '0');
-  renderSummary();
-});
-$('opt-interval').addEventListener('change', () => {
-  settings.interval = Number($('opt-interval').value);
-  saveSetting('lt.interval', String(settings.interval));
-});
+$('btn-claude-copy').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(claudePrompt(current, fmt));
+  } catch {
+    showNotice('コピーできませんでした。');
+    return;
+  }
+  $('dlg-claude').close();
+  showNotice('コピーしました。開いた Claude の入力欄に貼り付けて送ってください。');
+  window.open('https://claude.ai/new', '_blank', 'noopener');
+};
 
 // ---- 起動 ----
 

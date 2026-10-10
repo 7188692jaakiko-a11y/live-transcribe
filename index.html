@@ -19,7 +19,6 @@
     <button id="btn-sessions" class="icon-btn" aria-label="記録の一覧">☰</button>
     <input id="title" class="title" aria-label="記録の名前" placeholder="名前のない記録">
     <span id="clock" class="clock" aria-live="off">00:00</span>
-    <button id="btn-settings" class="icon-btn" aria-label="設定">⚙</button>
   </header>
 
   <nav class="tabs" aria-label="表示の切り替え">
@@ -40,8 +39,8 @@
     <section class="pane pane-summary" aria-label="要点リスト">
       <div class="summary-head">
         <h2>要点リスト</h2>
-        <span id="summary-status" class="summary-status"></span>
-        <button id="btn-summarize" class="btn small">更新</button>
+        <span class="summary-status">端末の中で自動で拾います</span>
+        <button id="btn-claude" class="btn small" disabled>Claude で詳しく</button>
       </div>
       <div id="summary" class="summary"></div>
     </section>
@@ -85,25 +84,13 @@
     </div>
   </dialog>
 
-  <dialog id="dlg-settings" class="sheet">
-    <h2>要点リストの設定</h2>
-    <p class="hint">要点リストは、文字起こしを Claude(Anthropic の AI)に送って作ります。
-      使うには Anthropic の API キーが必要です(<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">ここで発行</a>)。
-      使った分だけ料金がかかるので、Anthropic の画面で月の上限を決めておくと安心です。</p>
-    <label class="field">API キー
-      <input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-...">
-    </label>
-    <p class="hint">キーはこの端末の中にだけ保存されます。人に貸す端末では入れないでください。</p>
-    <label class="check"><input type="checkbox" id="opt-auto" checked> 話している間、要点を自動で更新する</label>
-    <label class="field">更新の間隔
-      <select id="opt-interval">
-        <option value="30">30秒ごと</option>
-        <option value="60" selected>1分ごと</option>
-        <option value="120">2分ごと</option>
-        <option value="300">5分ごと</option>
-      </select>
-    </label>
-    <div class="sheet-actions">
+  <dialog id="dlg-claude" class="sheet">
+    <h2>Claude で詳しくまとめる</h2>
+    <p class="hint">ここまでの文字起こしに「要点・決まったこと・やること・保留にまとめて」という頼み方を付けて、Claude に渡します。
+      お使いの Claude のプランの範囲で使え、追加の料金はかかりません。</p>
+    <div class="sheet-actions column">
+      <button id="btn-claude-share" class="btn">Claude アプリに送る(共有から Claude を選ぶ)</button>
+      <button id="btn-claude-copy" class="btn">コピーして claude.ai を開く</button>
       <button class="btn" data-close>閉じる</button>
     </div>
   </dialog>

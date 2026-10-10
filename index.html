@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ライブ文字起こし</title>
+  <meta name="description" content="話した言葉をその場で文字にする。打ち合わせ・レッスンの記録用">
+  <meta name="theme-color" content="#1f2a37">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="文字起こし">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <button id="btn-sessions" class="icon-btn" aria-label="記録の一覧">☰</button>
+    <input id="title" class="title" aria-label="記録の名前" placeholder="名前のない記録">
+    <span id="clock" class="clock" aria-live="off">00:00</span>
+  </header>
+
+  <div id="notice" class="notice" hidden></div>
+
+  <main id="transcript" class="transcript" aria-live="polite">
+    <p class="empty" id="empty">下の「● 開始」を押して話すと、ここに文字が出ます。<br>
+      行をタップすると、あとから直せます。</p>
+  </main>
+  <div id="interim" class="interim" aria-hidden="true"></div>
+
+  <footer class="controls">
+    <select id="lang" aria-label="話す言語">
+      <option value="ja-JP">日本語</option>
+      <option value="en-US">English</option>
+      <option value="de-DE">Deutsch</option>
+      <option value="fr-FR">Français</option>
+      <option value="it-IT">Italiano</option>
+      <option value="ko-KR">한국어</option>
+      <option value="zh-CN">中文</option>
+    </select>
+    <button id="btn-mark" class="btn" disabled title="今の位置に印を付ける">★ 印</button>
+    <button id="btn-rec" class="btn rec">● 開始</button>
+    <button id="btn-caption" class="btn" title="大きな文字で最新の言葉だけ出す">字幕</button>
+    <button id="btn-export" class="btn">書き出し</button>
+  </footer>
+
+  <dialog id="dlg-sessions" class="sheet">
+    <h2>記録の一覧</h2>
+    <p class="hint">記録はこの端末の中だけに保存されます。残したいものは「書き出し」で保存してください。</p>
+    <ul id="session-list" class="session-list"></ul>
+    <div class="sheet-actions">
+      <button id="btn-new" class="btn">＋ 新しい記録</button>
+      <button class="btn" value="close" formmethod="dialog" data-close>閉じる</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-export" class="sheet">
+    <h2>書き出し</h2>
+    <label class="check"><input type="checkbox" id="opt-time" checked> 経過時間を付ける</label>
+    <div class="sheet-actions column">
+      <button id="btn-copy" class="btn">文字をコピー</button>
+      <button id="btn-share" class="btn">共有(メール・メモ・Dropbox など)</button>
+      <button id="btn-download" class="btn">テキストファイルを保存</button>
+      <button class="btn" data-close>閉じる</button>
+    </div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

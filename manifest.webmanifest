@@ -1,0 +1,17 @@
+{
+  "name": "ライブ文字起こし",
+  "short_name": "文字起こし",
+  "description": "話した言葉をその場で文字にする。打ち合わせ・レッスンの記録用",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#1f2a37",
+  "theme_color": "#1f2a37",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

@@ -1,0 +1,114 @@
+:root {
+  --bg: #f7f6f2;
+  --fg: #1d232b;
+  --muted: #6b7380;
+  --line: #dcd9d0;
+  --panel: #ffffff;
+  --accent: #c0392b;
+  --mark: #b7791f;
+  --bar: #1f2a37;
+  --bar-fg: #f4f4f4;
+  --font: -apple-system, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14181d;
+    --fg: #e9e7e1;
+    --muted: #9aa3ae;
+    --line: #2c333c;
+    --panel: #1c2128;
+    --accent: #e5604f;
+    --mark: #e0a84a;
+    --bar: #0d1116;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  display: flex;
+  flex-direction: column;
+  -webkit-text-size-adjust: 100%;
+}
+
+.bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: calc(env(safe-area-inset-top) + 8px) 16px 8px;
+  background: var(--bar); color: var(--bar-fg);
+}
+.icon-btn { background: none; border: 0; color: inherit; font-size: 22px; padding: 4px 8px; }
+.title {
+  flex: 1; min-width: 0; background: transparent; border: 0; color: inherit;
+  font: 600 17px var(--font); padding: 6px 4px;
+}
+.title::placeholder { color: #a9b1bb; }
+.clock { font: 500 16px ui-monospace, Menlo, monospace; opacity: .85; }
+.clock.on::before { content: "● "; color: #ff6b5b; }
+
+.notice {
+  margin: 8px 16px 0; padding: 10px 12px; border-radius: 8px;
+  background: #fdecc8; color: #5c3d00; font-size: 14px; line-height: 1.5;
+}
+
+.transcript {
+  flex: 1; overflow-y: auto; padding: 16px 16px 8px;
+  font-size: 19px; line-height: 1.75;
+  -webkit-overflow-scrolling: touch;
+}
+.empty { color: var(--muted); font-size: 15px; }
+.line { display: flex; gap: 12px; margin: 0 0 6px; }
+.line .t {
+  flex: none; width: 4.2em; color: var(--muted);
+  font: 13px/2.4 ui-monospace, Menlo, monospace; user-select: none;
+}
+.line .x { flex: 1; min-width: 0; outline: none; border-radius: 4px; overflow-wrap: anywhere; }
+.line .x:focus { background: var(--panel); box-shadow: 0 0 0 2px var(--line); }
+.line.mark .x { color: var(--mark); font-weight: 600; }
+
+.interim {
+  min-height: 1.75em; padding: 0 16px 8px calc(16px + 4.2em + 12px);
+  color: var(--muted); font-size: 19px; line-height: 1.75;
+}
+
+.controls {
+  display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: center;
+  padding: 10px 16px calc(env(safe-area-inset-bottom) + 10px);
+  border-top: 1px solid var(--line); background: var(--panel);
+}
+.btn, select {
+  font: 500 16px var(--font); color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; min-height: 44px;
+}
+.btn:disabled { opacity: .4; }
+.btn.rec { background: var(--accent); color: #fff; border-color: transparent; min-width: 7.5em; font-weight: 700; }
+.btn.rec.on { background: var(--fg); color: var(--bg); }
+.btn.active { outline: 2px solid var(--fg); }
+
+/* 字幕モード: 大きな文字で最新だけ */
+body.caption .transcript { font-size: clamp(28px, 5.5vw, 56px); line-height: 1.5; }
+body.caption .interim { font-size: clamp(28px, 5.5vw, 56px); line-height: 1.5; padding-left: 16px; }
+body.caption .line .t { display: none; }
+body.caption .line:not(:nth-last-child(-n+4)) { display: none; }
+
+.sheet {
+  border: 0; border-radius: 14px; padding: 20px; width: min(520px, calc(100vw - 32px));
+  background: var(--panel); color: var(--fg);
+}
+.sheet::backdrop { background: rgba(0,0,0,.4); }
+.sheet h2 { margin: 0 0 8px; font-size: 19px; }
+.hint { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 0 0 12px; }
+.sheet-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.sheet-actions.column { flex-direction: column; align-items: stretch; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 16px; }
+.session-list { list-style: none; margin: 0; padding: 0; max-height: 55vh; overflow-y: auto; }
+.session-list li { display: flex; gap: 8px; align-items: center; border-bottom: 1px solid var(--line); }
+.session-list li.current { font-weight: 700; }
+.session-list .open {
+  flex: 1; text-align: left; background: none; border: 0; color: inherit;
+  font: inherit; padding: 12px 4px; min-width: 0;
+}
+.session-list .open small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; }
+.session-list .del { background: none; border: 0; color: var(--muted); font-size: 14px; padding: 8px; }

@@ -1,0 +1,6 @@
+{
+  "name": "live-transcribe",
+  "private": true,
+  "scripts": { "test": "node tests/app.test.js" },
+  "devDependencies": { "playwright-core": "1.55.0" }
+}

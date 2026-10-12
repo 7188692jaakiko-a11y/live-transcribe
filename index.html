@@ -67,6 +67,7 @@
     <p class="hint">記録はこの端末の中だけに保存されます。残したいものは「書き出し」で保存してください。</p>
     <ul id="session-list" class="session-list"></ul>
     <div class="sheet-actions">
+      <button id="btn-import" class="btn">取り込む</button>
       <button id="btn-new" class="btn">＋ 新しい記録</button>
       <button class="btn" value="close" formmethod="dialog" data-close>閉じる</button>
     </div>
@@ -81,6 +82,25 @@
       <button id="btn-share" class="btn">共有(メール・メモ・Dropbox など)</button>
       <button id="btn-download" class="btn">テキストファイルを保存</button>
       <button class="btn" data-close>閉じる</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-import" class="sheet">
+    <h2>文字起こしを取り込む</h2>
+    <p class="hint">Google の「音声文字変換」などで文字にしたものを、記録として取り込み、要点リストを作ります。
+      音声文字変換では、文字を長押しして全部選び「コピー」してから、下の「貼り付け」を押してください。
+      ホーム画面に追加してあれば、音声文字変換の「共有」からこのアプリを選んでも取り込めます。</p>
+    <label class="field">記録の名前
+      <input id="import-title" type="text" placeholder="例: 10/12 稽古">
+    </label>
+    <textarea id="import-text" class="import-text" placeholder="ここに貼り付け"></textarea>
+    <div class="row">
+      <button id="btn-import-paste" class="btn small">貼り付け</button>
+      <label class="btn small file">テキストファイルを選ぶ<input id="import-file" type="file" accept=".txt,text/plain"></label>
+    </div>
+    <div class="sheet-actions">
+      <button class="btn" data-close>やめる</button>
+      <button id="btn-import-go" class="btn rec">取り込む</button>
     </div>
   </dialog>
 

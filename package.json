@@ -2,7 +2,7 @@
   "name": "live-transcribe",
   "private": true,
   "scripts": {
-    "test": "node tests/app.test.js && node tests/points.test.js"
+    "test": "node tests/app.test.js && node tests/points.test.js && node tests/import.test.js"
   },
   "devDependencies": {
     "playwright-core": "1.55.0"

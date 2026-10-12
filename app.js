@@ -1,5 +1,6 @@
 // ライブ文字起こし: 端末(ブラウザ)の音声認識で話した言葉をその場で文字にする
 import { extractPoints, claudePrompt, SECTIONS } from './points.js';
+import { parseTranscript } from './import.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE_KEY = 'lt.sessions.v1';
@@ -40,6 +41,7 @@ function elapsed() {
   return current.durationMs + (runStart ? Date.now() - runStart : 0);
 }
 function fmt(ms) {
+  if (ms == null) return '';   // 時刻の無い行(取り込んだもの)
   const s = Math.floor(ms / 1000);
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
   const mm = String(m).padStart(2, '0'), ss = String(sec).padStart(2, '0');
@@ -62,9 +64,12 @@ function render() {
 function lineEl(line, i) {
   const p = document.createElement('p');
   p.className = 'line' + (line.mark ? ' mark' : '');
-  const t = document.createElement('span');
+  const t = document.createElement('button');
   t.className = 't';
-  t.textContent = fmt(line.t);
+  t.textContent = fmt(line.t) || '・';
+  // 時間の所を押すと、その行に ★ を付け外しする(「印を付けたところ」に入る)
+  t.title = '押すと ★ を付ける/外す';
+  if (!line.mark) t.onclick = () => toggleStar(line);
   const x = document.createElement('span');
   x.className = 'x';
   x.contentEditable = 'true';
@@ -75,6 +80,14 @@ function lineEl(line, i) {
   x.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); x.blur(); } });
   p.append(t, x);
   return p;
+}
+
+function toggleStar(line) {
+  line.text = line.text.startsWith('★') ? line.text.replace(/^★\s*/, '') : `★ ${line.text}`;
+  saveSessions();
+  const top = $('transcript').scrollTop;
+  render();
+  $('transcript').scrollTop = top;
 }
 
 function editLine(line, el) {
@@ -271,7 +284,7 @@ function exportText(withTime) {
   const s = current;
   const date = new Date(s.createdAt).toLocaleString('ja-JP');
   const head = `${s.title || '名前のない記録'}\n${date}(${fmt(s.durationMs + (runStart ? Date.now() - runStart : 0))})\n\n`;
-  const body = s.lines.map((l) => (withTime ? `[${fmt(l.t)}] ` : '') + l.text).join('\n');
+  const body = s.lines.map((l) => (withTime && l.t != null ? `[${fmt(l.t)}] ` : '') + l.text).join('\n');
   let summary = '';
   if ($('opt-summary').checked) {
     const points = extractPoints(s.lines, fmt);
@@ -404,12 +417,14 @@ function renderSummary(live = false) {
       const li = document.createElement('li');
       li.textContent = it.text;
       if (live && !shownPoints.has(id)) { li.className = 'new'; added++; }
-      const b = document.createElement('button');
-      b.className = 'at';
-      b.textContent = it.at;
-      b.title = 'この発言へ移動';
-      b.onclick = () => jumpTo(it.at);
-      li.appendChild(b);
+      if (it.at) {
+        const b = document.createElement('button');
+        b.className = 'at';
+        b.textContent = it.at;
+        b.title = 'この発言へ移動';
+        b.onclick = () => jumpTo(it.at);
+        li.appendChild(b);
+      }
       ul.appendChild(li);
     }
     box.append(h, ul);
@@ -417,7 +432,8 @@ function renderSummary(live = false) {
   if (!now.size) {
     box.appendChild(hint(current.lines.length
       ? 'まだ拾える発言はありません。「〜しましょう」「〜までに」「〜ですか」などの言い回しや、★ 印を付けたところがここに並びます。'
-      : '話し始めると、決まったこと・やること・質問などをここに拾っていきます。大事なところでは「★ 印」を押してください。'));
+      : '話し始めると、決まったこと・やること・質問などをここに拾っていきます。大事なところでは「★ 印」を押してください。'
+        + '「音声文字変換」などで文字にしたものは、左上の ☰ →「取り込む」から入れられます。'));
   }
   shownPoints = now;
   $('btn-claude').disabled = !current.lines.length;
@@ -485,6 +501,64 @@ $('btn-claude-copy').onclick = async () => {
   window.open('https://claude.ai/new', '_blank', 'noopener');
 };
 
+// ---- 取り込み(「音声文字変換」などで文字にしたもの) ----
+
+function importText(text, title = '') {
+  const lines = parseTranscript(text);
+  if (!lines.length) {
+    showNotice('取り込める文字がありませんでした。');
+    return false;
+  }
+  const d = new Date();
+  const s = newSession();
+  s.title = title.trim() || `取り込み ${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  s.lines = lines;
+  s.durationMs = Math.max(0, ...lines.map((l) => l.t ?? 0));
+  s.imported = true;
+  current = s;
+  saveSessions();
+  render();
+  showNotice(`${lines.length} 行を取り込みました。大事な行は、左の時間(・)を押すと ★ が付き、要点リストの「印を付けたところ」に入ります。`);
+  return true;
+}
+
+$('btn-import').onclick = () => {
+  $('dlg-sessions').close();
+  $('import-text').value = '';
+  $('import-title').value = '';
+  $('import-file').value = '';
+  $('dlg-import').showModal();
+};
+$('import-file').addEventListener('change', async () => {
+  const f = $('import-file').files[0];
+  if (!f) return;
+  $('import-text').value = await f.text();
+  if (!$('import-title').value) $('import-title').value = f.name.replace(/\.[^.]+$/, '');
+});
+$('btn-import-paste').onclick = async () => {
+  try { $('import-text').value = await navigator.clipboard.readText(); }
+  catch { showNotice('貼り付けできませんでした。入力欄を長押しして「貼り付け」を選んでください。'); }
+};
+$('btn-import-go').onclick = () => {
+  if (importText($('import-text').value, $('import-title').value)) $('dlg-import').close();
+};
+
+// ほかのアプリの「共有」からこのアプリを選んだとき(sw.js が受け取って控えておく)
+async function takeShared() {
+  if (!new URLSearchParams(location.search).has('shared')) return;
+  history.replaceState(null, '', location.pathname);
+  try {
+    const cache = await caches.open('lt-share');
+    const res = await cache.match('shared');
+    await cache.delete('shared');
+    if (!res) return;
+    const { title, text } = await res.json();
+    importText(text, title);
+  } catch {
+    showNotice('共有された文字を受け取れませんでした。コピーして「取り込む」に貼り付けてください。');
+  }
+}
+
 // ---- 起動 ----
 
 if (safeGet('lt.caption')) { document.body.classList.add('caption'); $('btn-caption').classList.add('active'); }
@@ -493,6 +567,7 @@ if (!SR) {
   $('btn-rec').disabled = true;
   showNotice('このブラウザは音声認識に対応していません。iPad は Safari、Android は Chrome で開いてください。');
 }
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
+if ('serviceWorker' in navigator && window.isSecureContext) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
+takeShared();

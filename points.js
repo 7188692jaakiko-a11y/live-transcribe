@@ -41,6 +41,12 @@ export function extractPoints(lines, fmt) {
       if (text) add('marked', text, prev?.t ?? line.t);
       return;
     }
+    // あとから行頭に ★ を付けた行(取り込んだ文字起こしなど)も印として拾う
+    if (line.text.startsWith('★')) {
+      const text = line.text.replace(/^★\s*/, '');
+      if (text) add('marked', text, line.t);
+      return;
+    }
     for (const s of sentences(line.text)) {
       const rule = RULES.find(([, re]) => re.test(s));
       if (rule) add(rule[0], s, line.t);
@@ -52,11 +58,11 @@ export function extractPoints(lines, fmt) {
 // Claude アプリに渡して詳しくまとめてもらうための文章(Claude のプランの範囲で使え、追加料金はかからない)
 export function claudePrompt(session, fmt) {
   const date = new Date(session.createdAt).toLocaleString('ja-JP');
-  const body = session.lines.map((l) => `[${fmt(l.t)}] ${l.text}`).join('\n');
+  const body = session.lines.map((l) => (l.t != null ? `[${fmt(l.t)}] ` : '') + l.text).join('\n');
   return `次は打ち合わせ・レッスンなどの音声認識による文字起こしです。誤認識を含むので、文脈から意味を汲み取ってください。
-「★ 印」の行は、記録した人が大事だと印を付けたところです(直前の発言が対象)。
+「★ 印」の行は、記録した人が大事だと印を付けたところです(直前の発言が対象)。★ で始まる行も、印を付けた発言です。
 
-次の分け方で、日本語の箇条書きにまとめてください。各項目に関係する経過時間 [分:秒] を添えてください。
+次の分け方で、日本語の箇条書きにまとめてください。経過時間 [分:秒] があれば、各項目に添えてください。
 - 要点
 - 決まったこと・指示
 - やること(誰が・いつまでに、が分かれば添える)

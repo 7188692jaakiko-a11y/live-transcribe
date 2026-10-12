@@ -1,1 +1,3 @@
 node_modules/
+mac/.venv/
+__pycache__/

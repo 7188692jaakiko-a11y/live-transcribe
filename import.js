@@ -1,5 +1,6 @@
 // 取り込み: ほかのアプリ(Google の「音声文字変換」など)で文字にしたものを、行に分けて記録にする
 // 時刻が書かれていれば経過時間に直し、無ければ時間なしの行にする
+// Mac の文字起こし(mac/文字起こし.command)が作る [分:秒] 付きのテキストもそのまま取り込める
 
 // 行頭の時刻: [00:12] / 00:12 / 1:02:03 / 午後3:21 など
 const STAMP = /^\[?\s*(午前|午後)?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*\]?\s*/;
@@ -36,7 +37,7 @@ export function parseTranscript(raw) {
   if (body >= 0) text = text.slice(body + '■ 文字起こし\n'.length);
 
   const lines = [];
-  let base = null;   // 最初の時刻(ここを 00:00 にする)
+  let base = null;   // 時計の時刻(午前/午後)のときだけ、最初の時刻を 00:00 にする
   let t = null;
   for (let row of text.split('\n')) {
     row = row.trim();
@@ -44,8 +45,8 @@ export function parseTranscript(raw) {
     const m = row.match(STAMP);
     if (m && (m[0].length === row.length || /\s|\]/.test(m[0]))) {
       const ms = stampMs(m);
-      base ??= ms;
-      t = Math.max(0, ms - base);
+      if (m[1]) base ??= ms;   // [分:秒] などの経過時間(録音の頭から)は、そのまま使う
+      t = Math.max(0, ms - (base ?? 0));
       row = row.slice(m[0].length).trim();
       if (!row) continue;   // 時刻だけの行
     }

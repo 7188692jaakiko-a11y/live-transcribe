@@ -23,7 +23,9 @@ const outDir = process.argv[2] || require('os').tmpdir();
   assert.deepEqual(await parse('午後3:20\n始めます\n午後3:22\n2幕から'),
     [{ t: 0, text: '始めます' }, { t: 120000, text: '2幕から' }]);
   // 行頭の [分:秒]
-  assert.deepEqual(await parse('[00:05] はい\n[01:10] 次'), [{ t: 0, text: 'はい' }, { t: 65000, text: '次' }]);
+  // [分:秒] は録音の頭からの経過時間なので、ずらさない(Mac の文字起こしの形)
+  assert.deepEqual(await parse('[00:05] はい\n[01:10] 次\n[1:02:03] 終わり'),
+    [{ t: 5000, text: 'はい' }, { t: 70000, text: '次' }, { t: 3723000, text: '終わり' }]);
   // 「12:30に集合」は時刻の見出しではなく本文
   assert.deepEqual(await parse('12:30に集合'), [{ t: null, text: '12:30に集合' }]);
   // 句点も無い長い一続きは、空白で区切る

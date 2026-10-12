@@ -1,6 +1,6 @@
 // 画面一式を端末に置いておき、電波の弱い場所でもすぐ開けるようにする
 // (文字への変換そのものは、多くの端末で通信が必要)
-const CACHE = 'lt-v4';
+const CACHE = 'lt-v5';
 const SHARE = 'lt-share';   // 共有で受け取った文字の一時置き場
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'points.js', 'import.js', 'manifest.webmanifest',
                'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];

@@ -1,6 +1,6 @@
 // 取り込み: ほかのアプリ(Google の「音声文字変換」など)で文字にしたものを、行に分けて記録にする
 // 時刻が書かれていれば経過時間に直し、無ければ時間なしの行にする
-// Mac の文字起こし(mac/文字起こし.command)が作る [分:秒] 付きのテキストもそのまま取り込める
+// 文字起こしソフト(Aiko など)が書き出す字幕ファイル(SRT・VTT)も、各字幕の始まりの時刻付きで取り込む
 
 // 行頭の時刻: [00:12] / 00:12 / 1:02:03 / 午後3:21 など
 const STAMP = /^\[?\s*(午前|午後)?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*\]?\s*/;
@@ -30,8 +30,30 @@ function pieces(text) {
   return out;
 }
 
+// 字幕の時刻: 00:00:05,000 / 00:05.000(VTT は時が省ける)
+const CUE = /^(?:(\d+):)?(\d{1,2}):(\d{2})[,.](\d{1,3})\s*-->/;
+
+function parseSubtitles(text) {
+  const lines = [];
+  for (const block of text.split(/\n\s*\n/)) {
+    const rows = block.split('\n').map((r) => r.trim());
+    const i = rows.findIndex((r) => CUE.test(r));
+    if (i < 0) continue;   // WEBVTT の見出し・NOTE など
+    const m = rows[i].match(CUE);
+    const t = (((Number(m[1] || 0) * 60 + Number(m[2])) * 60 + Number(m[3])) * 1000) + Number(m[4].padEnd(3, '0'));
+    // <v 話者> などの飾りは外す
+    const body = rows.slice(i + 1).join(' ').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+    for (const p of pieces(body)) {
+      // 字幕は細かく切れているので、同じ字幕の続きは前の行と同じ時刻
+      lines.push({ t, text: p });
+    }
+  }
+  return lines;
+}
+
 export function parseTranscript(raw) {
-  let text = String(raw || '').replace(/\r\n?/g, '\n');
+  let text = String(raw || '').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+  if (text.split('\n').some((r) => CUE.test(r.trim()))) return parseSubtitles(text);
   // このアプリの書き出しを取り込み直すときは、要点の部分を飛ばして文字起こしだけ使う
   const body = text.indexOf('■ 文字起こし\n');
   if (body >= 0) text = text.slice(body + '■ 文字起こし\n'.length);

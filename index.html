@@ -89,14 +89,15 @@
     <h2>文字起こしを取り込む</h2>
     <p class="hint">Google の「音声文字変換」などで文字にしたものを、記録として取り込み、要点リストを作ります。
       音声文字変換では、文字を長押しして全部選び「コピー」してから、下の「貼り付け」を押してください。
-      ホーム画面に追加してあれば、音声文字変換の「共有」からこのアプリを選んでも取り込めます。</p>
+      ホーム画面に追加してあれば、音声文字変換の「共有」からこのアプリを選んでも取り込めます。
+      文字起こしソフト(Aiko など)で書き出したテキストや字幕ファイル(SRT・VTT)も、「ファイルを選ぶ」から取り込めます。</p>
     <label class="field">記録の名前
       <input id="import-title" type="text" placeholder="例: 10/12 稽古">
     </label>
     <textarea id="import-text" class="import-text" placeholder="ここに貼り付け"></textarea>
     <div class="row">
       <button id="btn-import-paste" class="btn small">貼り付け</button>
-      <label class="btn small file">テキストファイルを選ぶ<input id="import-file" type="file" accept=".txt,text/plain"></label>
+      <label class="btn small file">ファイルを選ぶ(テキスト・字幕)<input id="import-file" type="file" accept=".txt,.srt,.vtt,text/plain,text/vtt,application/x-subrip"></label>
     </div>
     <div class="sheet-actions">
       <button class="btn" data-close>やめる</button>

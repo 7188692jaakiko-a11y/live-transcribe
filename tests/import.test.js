@@ -28,6 +28,12 @@ const outDir = process.argv[2] || require('os').tmpdir();
     [{ t: 5000, text: 'はい' }, { t: 70000, text: '次' }, { t: 3723000, text: '終わり' }]);
   // 「12:30に集合」は時刻の見出しではなく本文
   assert.deepEqual(await parse('12:30に集合'), [{ t: null, text: '12:30に集合' }]);
+  // 字幕ファイル(SRT): 番号・時刻の行を読み、各字幕の始まりの時刻を付ける
+  assert.deepEqual(await parse('\uFEFF1\r\n00:00:05,000 --> 00:00:07,500\r\n始めます。\r\n\r\n2\r\n01:02:03,250 --> 01:02:05,000\r\nテンポは\r\n96で。\r\n'),
+    [{ t: 5000, text: '始めます。' }, { t: 3723250, text: 'テンポは 96で。' }]);
+  // 字幕ファイル(VTT): 見出し・NOTE・話者の飾りを外す。時は省けることがある
+  assert.deepEqual(await parse('WEBVTT\n\nNOTE Aiko で書き出し\n\n00:12.500 --> 00:15.000\n<v 先生>左手を弱く。</v>\n\ncue-2\n00:01:20.000 --> 00:01:22.000\n2幕から'),
+    [{ t: 12500, text: '左手を弱く。' }, { t: 80000, text: '2幕から' }]);
   // 句点も無い長い一続きは、空白で区切る
   const long = Array.from({ length: 12 }, (_, i) => `これは${i}番目の話でけっこう長い`).join(' ');
   const parts = await parse(long);
@@ -77,6 +83,16 @@ const outDir = process.argv[2] || require('os').tmpdir();
   assert.equal(await p.inputValue('#import-title'), '稽古メモ');
   await p.click('#btn-import-go');
   assert.deepEqual(await p.$$eval('.line .t', (e) => e.map((x) => x.textContent)), ['00:00', '02:30']);
+
+  // 字幕ファイルから
+  await p.click('#btn-sessions');
+  await p.click('#btn-import');
+  await p.setInputFiles('#import-file', { name: '10月12日 稽古.srt', mimeType: 'application/x-subrip', buffer: Buffer.from('1\n00:00:03,000 --> 00:00:05,000\nリハーサルは14日の午後にしましょう\n\n2\n00:10:00,000 --> 00:10:02,000\n衣装はどうしますか\n') });
+  await p.waitForFunction(() => document.querySelector('#import-text').value.includes('衣装'));
+  await p.click('#btn-import-go');
+  assert.equal(await p.inputValue('#title'), '10月12日 稽古');
+  assert.deepEqual(await p.$$eval('.line .t', (e) => e.map((x) => x.textContent)), ['00:03', '10:00']);
+  assert.deepEqual(await p.$$eval('.line .x', (e) => e.map((x) => x.textContent)), ['リハーサルは14日の午後にしましょう', '衣装はどうしますか']);
 
   // 共有から(sw.js が受け取り、画面で取り込む)
   await p.evaluate(() => navigator.serviceWorker.ready);

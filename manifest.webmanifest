@@ -43,7 +43,11 @@
           "name": "file",
           "accept": [
             "text/plain",
-            ".txt"
+            "text/vtt",
+            "application/x-subrip",
+            ".txt",
+            ".srt",
+            ".vtt"
           ]
         }
       ]

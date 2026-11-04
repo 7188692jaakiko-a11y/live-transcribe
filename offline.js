@@ -2,8 +2,8 @@ import { AudioCapture } from './offline-audio.js';
 
 // Keep unprocessed audio in memory until recognition succeeds; never silently drop it.
 export class OfflineRecognition {
-  constructor({ onText, onStatus, onInterrupt, Capture = AudioCapture, makeWorker = () => new Worker(new URL('./offline-dist/worker.js', import.meta.url), { type: 'module' }) }) {
-    Object.assign(this, { onText, onStatus, onInterrupt, Capture, makeWorker });
+  constructor({ onText, onStatus, onInterrupt, onLevel = () => {}, Capture = AudioCapture, makeWorker = () => new Worker(new URL('./offline-dist/worker.js', import.meta.url), { type: 'module' }) }) {
+    Object.assign(this, { onText, onStatus, onInterrupt, onLevel, Capture, makeWorker });
     this.queue = []; this.ready = false; this.processing = false; this.loading = null; this.stopping = false;
   }
   prepare() {
@@ -37,7 +37,7 @@ export class OfflineRecognition {
       this.queue.push({ id: crypto.randomUUID(), audio, start: this.offset + start * 1000, overlap: start > 0 });
       this.pump();
       if (this.queue.length >= 8 && !this.stopping) this.onInterrupt('処理が追いつかないため一時停止します。処理が終わったら再開してください。');
-    }, () => {}, message => this.onInterrupt(message));
+    }, this.onLevel, message => this.onInterrupt(message));
     await this.capture.start();
   }
   async stop() {

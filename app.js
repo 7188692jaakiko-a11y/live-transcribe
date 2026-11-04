@@ -2,7 +2,8 @@
 import { extractPoints, claudePrompt, SECTIONS } from './points.js';
 import { parseTranscript } from './import.js';
 import { OfflineRecognition } from './offline.js';
-import { removeOverlap, validateNote, extractInsights } from './kotonoha-core.js';
+import { AudioCapture } from './offline-audio.js';
+import { removeOverlap, validateNote, extractInsights, markdown } from './kotonoha-core.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE_KEY = 'lt.sessions.v1';
@@ -140,22 +141,49 @@ let restartTimer = null;
 let wakeLock = null;
 let offlineStarting = false;
 let offlineLastLine = null;
+let micMonitor = null, micBusy = false;
+function updateMicLevel(db, peak) {
+  $('mic-level').hidden = false;
+  $('mic-meter').value = Math.max(-60, Math.min(0, db));
+  $('mic-level-text').textContent = peak > .96 ? '音割れに注意' : db < -42 ? '小さめ・近づけてください' : `${Math.round(db)} dB`;
+}
+async function stopMicMonitor() {
+  const capture = micMonitor; micMonitor = null;
+  if (capture) await capture.stop(false);
+  $('mic-level').hidden = true; $('btn-mic-test').textContent = 'マイクを確認';
+}
+$('btn-mic-test').onclick = async () => {
+  if (micBusy) return;
+  micBusy = true; refreshOfflineUI();
+  try {
+    if (micMonitor) { await stopMicMonitor(); return; }
+    if (document.hidden) throw new Error('画面を開いてからマイクを確認してください。');
+    const capture = new AudioCapture(() => {}, updateMicLevel, message => stopMicMonitor().then(() => { showNotice(message); refreshOfflineUI(); }));
+    micMonitor = capture;
+    try { await capture.start(); } catch (e) { micMonitor = null; throw e; }
+    if (document.hidden) { await stopMicMonitor(); throw new Error('画面が隠れたためマイク確認を終了しました。'); }
+    $('btn-mic-test').textContent = 'マイク確認を終了'; showNotice('話す位置から声を出し、入力レベルを確認してください。');
+  } catch (e) { showNotice(e.message); }
+  finally { micBusy = false; refreshOfflineUI(); }
+};
 const offline = new OfflineRecognition({
   onText(text, t, overlap) {
     if (overlap && offlineLastLine && current.lines.at(-1) === offlineLastLine) text = removeOverlap(offlineLastLine.text, text);
     if (text) offlineLastLine = addLine(text, { t });
   },
+  onLevel: updateMicLevel,
   onStatus(message) { showNotice(message); refreshOfflineUI(); },
   onInterrupt(message) { stopRecording().then(() => { showNotice(message); refreshOfflineUI(); }); }
 });
 function refreshOfflineUI() {
   const selected = $('engine').value === 'offline';
   $('btn-prepare').hidden = !selected;
-  $('btn-prepare').disabled = !!offline.loading || offlineStarting || wantRec;
+  $('btn-prepare').disabled = !!offline.loading || offlineStarting || wantRec || micBusy || !!micMonitor;
+  $('btn-mic-test').disabled = wantRec || offlineStarting || !!offline.loading || offline.stopping || micBusy;
   $('engine').disabled = wantRec || offlineStarting || !!offline.loading || offline.queue.length > 0 || offline.stopping;
   $('lang').disabled = wantRec || offlineStarting || selected;
   $('btn-sessions').disabled = wantRec || offlineStarting || offline.queue.length > 0 || offline.stopping;
-  $('btn-rec').disabled = offlineStarting || !!offline.loading || offline.stopping || (selected && (!offline.ready || offline.queue.length > 0)) || (!selected && !SR);
+  $('btn-rec').disabled = micBusy || !!micMonitor || offlineStarting || !!offline.loading || offline.stopping || (selected && (!offline.ready || offline.queue.length > 0)) || (!selected && !SR);
 }
 $('engine').onchange = () => {
   if ($('engine').value === 'offline') { $('lang').value = 'ja-JP'; showNotice('端末内認識は日本語対応です。最初に「準備する」を押してください。音声は外部に送信しません。'); }
@@ -295,7 +323,7 @@ async function stopRecording() {
   saveSessions();
   setRecUI(false);
   releaseWakeLock();
-  if (wasOffline) await offline.stop();
+  if (wasOffline) { await offline.stop(); $('mic-level').hidden = true; }
   refreshOfflineUI();
 }
 
@@ -318,6 +346,7 @@ function releaseWakeLock() {
   wakeLock = null;
 }
 document.addEventListener('visibilitychange', () => {
+  if (document.hidden && micMonitor) { stopMicMonitor().then(refreshOfflineUI); }
   if (document.hidden && wantRec && $('engine').value === 'offline') { stopRecording().then(() => showNotice('画面が隠れたため端末内認識を一時停止しました。')); return; }
   if (document.visibilityState === 'visible' && wantRec && $('engine').value === 'browser') {
     requestWakeLock();
@@ -385,12 +414,25 @@ $('btn-download').onclick = () => {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 };
 
+$('btn-markdown').onclick = () => {
+  const meta = current.kotonoha || { summary: '', decisions: [], tasks: [] };
+  const note = { title: current.title || '文字起こし', createdAt: new Date(current.createdAt).toISOString(),
+    elapsed: elapsed() / 1000, summary: meta.summary, decisions: meta.decisions, tasks: meta.tasks,
+    segments: current.lines.map(l => ({ start: l.t == null ? 0 : l.t / 1000, text: l.text })) };
+  const url = URL.createObjectURL(new Blob([markdown(note)], { type: 'text/markdown;charset=utf-8' }));
+  const a = document.createElement('a'); a.href = url; a.download = exportName().replace(/\.txt$/, '.md'); a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+};
+
 // ---- 記録の一覧 ----
 
 function renderSessionList() {
   const ul = $('session-list');
   ul.replaceChildren();
+  const query = $('session-search').value.trim().toLocaleLowerCase();
   for (const s of sessions) {
+    const searchable = [s.title, ...s.lines.map(line => line.text), s.kotonoha?.summary, ...(s.kotonoha?.decisions || []).map(item => item.text), ...(s.kotonoha?.tasks || []).map(item => item.text)].join(' ').toLocaleLowerCase();
+    if (query && !searchable.includes(query)) continue;
     const li = document.createElement('li');
     if (s === current) li.className = 'current';
     const open = document.createElement('button');
@@ -427,7 +469,8 @@ $('btn-caption').onclick = () => {
   $('transcript').scrollTop = $('transcript').scrollHeight;
 };
 $('btn-export').onclick = () => $('dlg-export').showModal();
-$('btn-sessions').onclick = () => { renderSessionList(); $('dlg-sessions').showModal(); };
+$('session-search').oninput = renderSessionList;
+$('btn-sessions').onclick = () => { $('session-search').value = ''; renderSessionList(); $('dlg-sessions').showModal(); };
 $('btn-backup').onclick = () => {
   const blob = new Blob([JSON.stringify({ format: 'live-transcribe-backup', version: 1, sessions }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '文字起こしバックアップ.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
@@ -504,17 +547,22 @@ function renderNoteDetails() {
   box.replaceChildren();
   const note = current.kotonoha;
   if (!note) return;
-  const heading = document.createElement('h3'); heading.textContent = 'ことのはから引き継いだメモ'; box.appendChild(heading);
+  const heading = document.createElement('h3'); heading.textContent = '要約とメモ'; box.appendChild(heading);
   const summary = document.createElement('textarea'); summary.className = 'import-text'; summary.value = note.summary; summary.setAttribute('aria-label', '要約を編集');
   summary.onchange = () => { note.summary = summary.value; saveSessions(); }; box.appendChild(summary);
   for (const [kind, label] of [['decisions', '決定事項'], ['tasks', 'やること']]) {
-    if (!note[kind].length) continue;
     const h = document.createElement('h3'); h.textContent = label; box.appendChild(h);
     for (const item of note[kind]) {
       const row = document.createElement('label'); row.className = 'check';
       if (kind === 'tasks') { const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!item.done; cb.onchange = () => { item.done = cb.checked; saveSessions(); }; row.appendChild(cb); }
-      const input = document.createElement('input'); input.type = 'text'; input.value = item.text; input.setAttribute('aria-label', label + 'を編集'); input.onchange = () => { item.text = input.value; saveSessions(); }; row.appendChild(input); box.appendChild(row);
+      const input = document.createElement('input'); input.type = 'text'; input.value = item.text; input.setAttribute('aria-label', label + 'を編集'); input.onchange = () => { item.text = input.value; saveSessions(); }; row.appendChild(input);
+      const del = document.createElement('button'); del.type = 'button'; del.className = 'btn small'; del.textContent = '削除'; del.setAttribute('aria-label', label + 'を削除');
+      del.onclick = () => { if (!confirm(`「${item.text || label}」を削除しますか？`)) return; note[kind] = note[kind].filter(x => x !== item); saveSessions(); box.replaceChildren(); renderNoteDetails(); };
+      row.appendChild(del); box.appendChild(row);
     }
+    const add = document.createElement('button'); add.type = 'button'; add.className = 'btn small'; add.textContent = label + 'を追加';
+    add.onclick = () => { note[kind].push({ id: crypto.randomUUID(), text: '', ...(kind === 'tasks' ? { done: false } : {}) }); saveSessions(); box.replaceChildren(); renderNoteDetails(); box.querySelectorAll('input[type=text]')[box.querySelectorAll('input[type=text]').length - 1]?.focus(); };
+    box.appendChild(add);
   }
 }
 
@@ -552,6 +600,10 @@ $('tab-text').onclick = () => showTab('text');
 $('tab-summary').onclick = () => showTab('summary');
 
 // Claude アプリに渡して詳しくまとめてもらう(Claude のプランの範囲で、追加料金なし)
+$('btn-edit-notes').onclick = () => {
+  current.kotonoha ||= { summary: '', decisions: [], tasks: [] };
+  saveSessions(); renderNoteDetails();
+};
 $('btn-notes').onclick = () => {
   if (!current.lines.length) return;
   if (current.kotonoha && !confirm('要約・決定事項・やることを作り直します。編集内容と完了チェックは置き換わります。続けますか？')) return;

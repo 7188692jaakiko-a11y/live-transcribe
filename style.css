@@ -179,3 +179,5 @@ body.caption .line:not(:nth-last-child(-n+4)) { display: none; }
 .note-details .import-text { min-height: 5em; }
 .note-details .check { display: flex; align-items: center; gap: 8px; }
 .note-details input[type=text] { flex: 1; min-width: 0; font: 16px var(--font); padding: 6px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+.mic-level { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.mic-level meter { width: 100px; }

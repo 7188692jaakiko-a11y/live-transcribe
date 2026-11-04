@@ -1,6 +1,8 @@
 // ライブ文字起こし: 端末(ブラウザ)の音声認識で話した言葉をその場で文字にする
 import { extractPoints, claudePrompt, SECTIONS } from './points.js';
 import { parseTranscript } from './import.js';
+import { OfflineRecognition } from './offline.js';
+import { removeOverlap, validateNote, extractInsights } from './kotonoha-core.js';
 
 const $ = (id) => document.getElementById(id);
 const STORE_KEY = 'lt.sessions.v1';
@@ -136,6 +138,35 @@ let lastRunLine = null;    // 今回の認識で最後に確定した行(重複�
 let failures = 0;          // 結果が出ないまま続いたエラーの回数
 let restartTimer = null;
 let wakeLock = null;
+let offlineStarting = false;
+let offlineLastLine = null;
+const offline = new OfflineRecognition({
+  onText(text, t, overlap) {
+    if (overlap && offlineLastLine && current.lines.at(-1) === offlineLastLine) text = removeOverlap(offlineLastLine.text, text);
+    if (text) offlineLastLine = addLine(text, { t });
+  },
+  onStatus(message) { showNotice(message); refreshOfflineUI(); },
+  onInterrupt(message) { stopRecording().then(() => { showNotice(message); refreshOfflineUI(); }); }
+});
+function refreshOfflineUI() {
+  const selected = $('engine').value === 'offline';
+  $('btn-prepare').hidden = !selected;
+  $('btn-prepare').disabled = !!offline.loading || offlineStarting || wantRec;
+  $('engine').disabled = wantRec || offlineStarting || !!offline.loading || offline.queue.length > 0 || offline.stopping;
+  $('lang').disabled = wantRec || offlineStarting || selected;
+  $('btn-sessions').disabled = wantRec || offlineStarting || offline.queue.length > 0 || offline.stopping;
+  $('btn-rec').disabled = offlineStarting || !!offline.loading || offline.stopping || (selected && (!offline.ready || offline.queue.length > 0)) || (!selected && !SR);
+}
+$('engine').onchange = () => {
+  if ($('engine').value === 'offline') { $('lang').value = 'ja-JP'; showNotice('端末内認識は日本語対応です。最初に「準備する」を押してください。音声は外部に送信しません。'); }
+  else showNotice('ブラウザの音声認識は、音声がAppleやGoogleに送信される場合があります。');
+  refreshOfflineUI();
+};
+$('btn-prepare').onclick = async () => {
+  try { const pending = offline.prepare(); refreshOfflineUI(); await pending; }
+  catch (e) { showNotice(`準備できませんでした: ${e.message}`); }
+  finally { refreshOfflineUI(); }
+};
 
 function createRecognition() {
   const r = new SR();
@@ -228,6 +259,19 @@ function startEngine() {
 }
 
 async function startRecording() {
+  if ($('engine').value === 'offline') {
+    if (!offline.ready || offlineStarting || offline.queue.length) return;
+    offlineStarting = true; refreshOfflineUI(); showNotice('');
+    try {
+      if (document.hidden) throw new Error('画面を開いてから開始してください。');
+      offlineLastLine = null;
+      await offline.start(current.durationMs);
+      if (document.hidden) { await offline.stop(); throw new Error('画面が隠れたため開始を中止しました。'); }
+      runStart = Date.now(); wantRec = true; current.lang = 'ja-JP'; setRecUI(true); requestWakeLock();
+    } catch (e) { showNotice(e.message); }
+    finally { offlineStarting = false; refreshOfflineUI(); }
+    return;
+  }
   if (!SR) return;
   showNotice('');
   wantRec = true;
@@ -239,7 +283,8 @@ async function startRecording() {
   requestWakeLock();
 }
 
-function stopRecording() {
+async function stopRecording() {
+  const wasOffline = $('engine').value === 'offline';
   wantRec = false;
   clearTimeout(restartTimer);
   if (rec) { try { rec.stop(); } catch {} }
@@ -250,6 +295,8 @@ function stopRecording() {
   saveSessions();
   setRecUI(false);
   releaseWakeLock();
+  if (wasOffline) await offline.stop();
+  refreshOfflineUI();
 }
 
 function setRecUI(on) {
@@ -259,6 +306,7 @@ function setRecUI(on) {
   $('btn-mark').disabled = !on;
   $('lang').disabled = on;
   $('btn-sessions').disabled = on;
+  refreshOfflineUI();
 }
 
 // 録音中は画面が消えないようにする(画面が消えるとマイクも止まる)
@@ -270,7 +318,8 @@ function releaseWakeLock() {
   wakeLock = null;
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && wantRec) {
+  if (document.hidden && wantRec && $('engine').value === 'offline') { stopRecording().then(() => showNotice('画面が隠れたため端末内認識を一時停止しました。')); return; }
+  if (document.visibilityState === 'visible' && wantRec && $('engine').value === 'browser') {
     requestWakeLock();
     // 裏に回ったあいだに止まっていたらつなぎ直す
     clearTimeout(restartTimer);
@@ -379,6 +428,10 @@ $('btn-caption').onclick = () => {
 };
 $('btn-export').onclick = () => $('dlg-export').showModal();
 $('btn-sessions').onclick = () => { renderSessionList(); $('dlg-sessions').showModal(); };
+$('btn-backup').onclick = () => {
+  const blob = new Blob([JSON.stringify({ format: 'live-transcribe-backup', version: 1, sessions }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = '文字起こしバックアップ.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+};
 $('btn-new').onclick = () => {
   if (!current.lines.length && !current.title) { $('dlg-sessions').close(); return; }
   current = newSession();
@@ -402,6 +455,7 @@ let shownPoints = new Set();   // いま画面に出ている項目(新しく増
 function renderSummary(live = false) {
   const box = $('summary');
   box.replaceChildren();
+  renderNoteDetails();
   const points = extractPoints(current.lines, fmt);
   const now = new Set();
   let added = 0;
@@ -437,9 +491,30 @@ function renderSummary(live = false) {
   }
   shownPoints = now;
   $('btn-claude').disabled = !current.lines.length;
+  $('btn-notes').disabled = !current.lines.length;
   if (added && !document.body.classList.contains('show-summary') && window.matchMedia('(max-width: 899px)').matches) {
     $('summary-badge').hidden = false;
     $('summary-badge').textContent = '新';
+  }
+}
+
+function renderNoteDetails() {
+  const box = $('note-details');
+  if (box.contains(document.activeElement)) return;
+  box.replaceChildren();
+  const note = current.kotonoha;
+  if (!note) return;
+  const heading = document.createElement('h3'); heading.textContent = 'ことのはから引き継いだメモ'; box.appendChild(heading);
+  const summary = document.createElement('textarea'); summary.className = 'import-text'; summary.value = note.summary; summary.setAttribute('aria-label', '要約を編集');
+  summary.onchange = () => { note.summary = summary.value; saveSessions(); }; box.appendChild(summary);
+  for (const [kind, label] of [['decisions', '決定事項'], ['tasks', 'やること']]) {
+    if (!note[kind].length) continue;
+    const h = document.createElement('h3'); h.textContent = label; box.appendChild(h);
+    for (const item of note[kind]) {
+      const row = document.createElement('label'); row.className = 'check';
+      if (kind === 'tasks') { const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!item.done; cb.onchange = () => { item.done = cb.checked; saveSessions(); }; row.appendChild(cb); }
+      const input = document.createElement('input'); input.type = 'text'; input.value = item.text; input.setAttribute('aria-label', label + 'を編集'); input.onchange = () => { item.text = input.value; saveSessions(); }; row.appendChild(input); box.appendChild(row);
+    }
   }
 }
 
@@ -477,6 +552,13 @@ $('tab-text').onclick = () => showTab('text');
 $('tab-summary').onclick = () => showTab('summary');
 
 // Claude アプリに渡して詳しくまとめてもらう(Claude のプランの範囲で、追加料金なし)
+$('btn-notes').onclick = () => {
+  if (!current.lines.length) return;
+  if (current.kotonoha && !confirm('要約・決定事項・やることを作り直します。編集内容と完了チェックは置き換わります。続けますか？')) return;
+  const insights = extractInsights(current.lines.map(l => l.text).join('\n'));
+  current.kotonoha = { ...(current.kotonoha || {}), ...insights };
+  saveSessions(); renderSummary(); showNotice('発言から要約・決定事項・やることの候補を抽出しました。内容を確認してください。');
+};
 $('btn-claude').onclick = () => $('dlg-claude').showModal();
 $('btn-claude-share').onclick = async () => {
   const text = claudePrompt(current, fmt);
@@ -527,12 +609,16 @@ $('btn-import').onclick = () => {
   $('import-text').value = '';
   $('import-title').value = '';
   $('import-file').value = '';
+  importedJSON = null;
   $('dlg-import').showModal();
 };
+let importedJSON = null;
 $('import-file').addEventListener('change', async () => {
   const f = $('import-file').files[0];
   if (!f) return;
-  $('import-text').value = await f.text();
+  const contents = await f.text();
+  importedJSON = f.name.toLowerCase().endsWith('.json') ? contents : null;
+  $('import-text').value = importedJSON ? 'JSONバックアップを選択しました。「取り込む」で復元します。' : contents;
   if (!$('import-title').value) $('import-title').value = f.name.replace(/\.[^.]+$/, '');
 });
 $('btn-import-paste').onclick = async () => {
@@ -540,8 +626,33 @@ $('btn-import-paste').onclick = async () => {
   catch { showNotice('貼り付けできませんでした。入力欄を長押しして「貼り付け」を選んでください。'); }
 };
 $('btn-import-go').onclick = () => {
-  if (importText($('import-text').value, $('import-title').value)) $('dlg-import').close();
+  if (importedJSON !== null) {
+    try { const added = restoreBackup(importedJSON); sessions.unshift(...added); if (added.length) current = added[0]; saveSessions(); render(); showNotice(`${added.length}件の記録を追加しました。`); $('dlg-import').close(); }
+    catch (e) { showNotice(`バックアップを復元できません: ${e.message}`); }
+  } else if (importText($('import-text').value, $('import-title').value)) $('dlg-import').close();
 };
+
+
+function restoreBackup(text) {
+  const data = JSON.parse(text);
+  let records;
+  if (data?.format === 'live-transcribe-backup' && data.version === 1 && Array.isArray(data.sessions)) {
+    records = data.sessions.map(s => {
+      if (!s || typeof s.title !== 'string' || !Array.isArray(s.lines) || !Number.isFinite(s.createdAt) || !Number.isFinite(s.durationMs) || s.durationMs < 0 || s.lines.some(l => !l || typeof l.text !== 'string' || (l.t != null && (!Number.isFinite(l.t) || l.t < 0)))) throw new Error('記録の形式が正しくありません。');
+      if (s.kotonoha && (typeof s.kotonoha.summary !== 'string' || !Array.isArray(s.kotonoha.decisions) || !Array.isArray(s.kotonoha.tasks) || [...s.kotonoha.decisions, ...s.kotonoha.tasks].some(item => !item || typeof item.text !== 'string'))) throw new Error('要約ややることの形式が正しくありません。');
+      return { ...s, id: crypto.randomUUID() };
+    });
+  } else {
+    const notes = Array.isArray(data) ? data : Array.isArray(data?.notes) ? data.notes : [data];
+    records = notes.map(raw => {
+      const n = validateNote(raw);
+      return { id: crypto.randomUUID(), title: n.title, lang: 'ja-JP', createdAt: Date.parse(n.createdAt), durationMs: n.elapsed * 1000,
+        lines: n.segments.map(x => ({ t: x.start * 1000, text: x.text })), kotonoha: n };
+    });
+  }
+  if (!records.length) throw new Error('記録がありません。');
+  return records;
+}
 
 // ほかのアプリの「共有」からこのアプリを選んだとき(sw.js が受け取って控えておく)
 async function takeShared() {
@@ -563,10 +674,8 @@ async function takeShared() {
 
 if (safeGet('lt.caption')) { document.body.classList.add('caption'); $('btn-caption').classList.add('active'); }
 render();
-if (!SR) {
-  $('btn-rec').disabled = true;
-  showNotice('このブラウザは音声認識に対応していません。iPad は Safari、Android は Chrome で開いてください。');
-}
+if (!SR) showNotice('ブラウザの音声認識は使えません。端末内認識を選んで準備してください。');
+refreshOfflineUI();
 if ('serviceWorker' in navigator && window.isSecureContext) {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }

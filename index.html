@@ -40,13 +40,22 @@
       <div class="summary-head">
         <h2>要点リスト</h2>
         <span class="summary-status">端末の中で自動で拾います</span>
+        <button id="btn-notes" class="btn small" disabled>要約・やることを作る</button>
         <button id="btn-claude" class="btn small" disabled>Claude で詳しく</button>
       </div>
+      <div id="note-details" class="note-details"></div>
       <div id="summary" class="summary"></div>
     </section>
   </div>
 
   <footer class="controls">
+    <label class="engine-label">認識方式
+      <select id="engine" aria-label="音声認識の方式">
+        <option value="browser">ブラウザ（音声が送信される場合あり）</option>
+        <option value="offline">端末内（日本語・約40MB）</option>
+      </select>
+    </label>
+    <button id="btn-prepare" class="btn" hidden>準備する</button>
     <select id="lang" aria-label="話す言語">
       <option value="ja-JP">日本語</option>
       <option value="en-US">English</option>
@@ -68,6 +77,7 @@
     <ul id="session-list" class="session-list"></ul>
     <div class="sheet-actions">
       <button id="btn-import" class="btn">取り込む</button>
+      <button id="btn-backup" class="btn">全記録をバックアップ</button>
       <button id="btn-new" class="btn">＋ 新しい記録</button>
       <button class="btn" value="close" formmethod="dialog" data-close>閉じる</button>
     </div>
@@ -94,10 +104,11 @@
     <label class="field">記録の名前
       <input id="import-title" type="text" placeholder="例: 10/12 稽古">
     </label>
+    <p class="hint">「ことのは」のJSONバックアップや、このアプリのバックアップも復元できます。既存の記録には上書きしません。</p>
     <textarea id="import-text" class="import-text" placeholder="ここに貼り付け"></textarea>
     <div class="row">
       <button id="btn-import-paste" class="btn small">貼り付け</button>
-      <label class="btn small file">ファイルを選ぶ(テキスト・字幕)<input id="import-file" type="file" accept=".txt,.srt,.vtt,text/plain,text/vtt,application/x-subrip"></label>
+      <label class="btn small file">ファイルを選ぶ(テキスト・字幕)<input id="import-file" type="file" accept=".txt,.srt,.vtt,.json,text/plain,text/vtt,application/x-subrip,application/json"></label>
     </div>
     <div class="sheet-actions">
       <button class="btn" data-close>やめる</button>

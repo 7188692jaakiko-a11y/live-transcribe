@@ -77,7 +77,7 @@ const fakeSR = () => {
 
   // 行を直すと要点も変わる
   await p.click('.line:nth-child(4) .x');
-  await p.keyboard.press('Control+A'); await p.keyboard.type('衣装は黒で統一にします'); await p.keyboard.press('Enter');
+  await p.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A'); await p.keyboard.type('衣装は黒で統一にします'); await p.keyboard.press('Enter');
   assert.ok((await p.textContent('.summary')).includes('衣装は黒で統一にします'));
   assert.ok(!(await p.textContent('.summary')).includes('どうしますか'));
 

@@ -1,8 +1,11 @@
 // 画面一式を端末に置いておき、電波の弱い場所でもすぐ開けるようにする
 // (文字への変換そのものは、多くの端末で通信が必要)
-const CACHE = 'lt-v5';
+const CACHE = 'lt-v6';
 const SHARE = 'lt-share';   // 共有で受け取った文字の一時置き場
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'points.js', 'import.js', 'manifest.webmanifest',
+               'offline.js', 'offline-audio.js', 'audio-capture.js', 'kotonoha-core.js', 'offline-dist/worker.js',
+               'offline-dist/wasm/ort-wasm-simd-threaded.mjs', 'offline-dist/wasm/ort-wasm-simd-threaded.wasm',
+               'offline-dist/wasm/ort-wasm-simd-threaded.jsep.mjs', 'offline-dist/wasm/ort-wasm-simd-threaded.jsep.wasm',
                'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -10,7 +13,7 @@ self.addEventListener('install', (e) => {
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys()
-    .then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== SHARE).map((k) => caches.delete(k))))
+    .then((keys) => Promise.all(keys.filter((k) => k.startsWith('lt-v') && k !== CACHE).map((k) => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 // 新しい版があればそれを使い、つながらないときだけ端末の控えを使う

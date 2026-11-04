@@ -15,7 +15,10 @@ jobs:
     environment: { name: github-pages, url: "${{ steps.d.outputs.page_url }}" }
     steps:
       - uses: actions/checkout@v4
-      - run: mkdir _site && cp -r index.html style.css app.js points.js import.js sw.js manifest.webmanifest icons _site/
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci && npm run build
+      - run: mkdir _site && cp -r index.html style.css app.js points.js import.js sw.js manifest.webmanifest icons offline.js offline-audio.js audio-capture.js kotonoha-core.js offline-dist _site/
       - uses: actions/upload-pages-artifact@v3
         with: { path: _site }
       - id: d
